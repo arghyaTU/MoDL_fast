@@ -8,6 +8,8 @@ fastMRI compatible file contains some supporting functions used during training 
 import time
 import numpy as np
 import h5py as h5
+import matplotlib.pyplot as plt
+import os
 
 #%%
 def div0( a, b ):
@@ -334,3 +336,79 @@ def gen_mask(shape, acceleration_factor):
     mask[sampled_rows, sampled_cols] = True
 
     return mask
+def generate_1d_gaussian_mask(M, N, R):
+    """
+    Generates a 1D vertical Gaussian undersampling mask.
+
+    Args:
+        M (int): The height of the k-space (number of vertical lines).
+        N (int): The width of the k-space.
+        R (float): The desired acceleration factor.
+
+    Returns:
+        np.ndarray: A 2D numpy array representing the undersampling mask.
+        int: The actual number of lines sampled.
+    """
+    # 1. Calculate the number of vertical lines to sample
+    num_sampled_lines = int(N / R)
+    if num_sampled_lines == 0:
+        num_sampled_lines = 1
+    #print(f"Targeting {num_sampled_lines} lines out of {N} for R={R}.")
+
+    # 2. Create a 1D Gaussian probability distribution
+    # The center of the distribution will be at the center of k-space (M/2)
+    center_k_space = N // 2
+    # The standard deviation (sigma) controls the spread. A smaller sigma
+    # means a more concentrated sampling at the center. A good starting
+    # point is a fraction of the total lines.
+    sigma = N / 8
+
+    # Create an array of indices from 0 to M-1
+    line_indices = np.arange(N)
+
+    # Calculate the Gaussian probability for each line index
+    probabilities = np.exp(-((line_indices - center_k_space)**2) / (2 * sigma**2))
+
+    # Normalize the probabilities so they sum to 1
+    probabilities /= np.sum(probabilities)
+
+    # 3. Select lines to sample based on the Gaussian distribution
+    # We use weighted random sampling *without replacement* to ensure we get
+    # the exact number of unique lines we need.
+    sampled_indices = np.random.choice(
+        a=line_indices,
+        size=num_sampled_lines,
+        replace=False,
+        p=probabilities
+    )
+
+    # 4. Create the 2D mask image
+    mask = np.zeros((M, N), dtype=np.float32)
+    for index in sampled_indices:
+        mask[:, index] = 1  # Set the entire selected row to 1
+
+    return mask, len(sampled_indices)
+
+def plot_mask(mask, title):
+    """
+    Plots and saves the generated mask.
+    """
+    plt.figure(figsize=(6, 8))
+    plt.imshow(mask, cmap='gray', aspect='auto')
+    plt.title(title, fontsize=14)
+    plt.xlabel("k-space (kx)")
+    plt.ylabel("k-space (ky)")
+
+    # Save the figure
+    filename = "mask_1d_gaussian_vertical_R4.png"
+    plt.savefig(filename)
+    print(f"\nMask image saved as '{filename}'")
+
+    plt.show()
+
+def save_mask_as_npz(mask, filename):
+    """
+    Saves the generated mask as a .npz file.
+    """
+    np.savez_compressed(filename, mask=mask)
+    print(f"Mask saved as '{filename}'")
